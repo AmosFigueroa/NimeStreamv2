@@ -9,8 +9,8 @@ const PORT = 5000;
 app.use(cors());
 app.use(express.json());
 
-// The external scraping API endpoint
-const SCRAPER_API = 'https://apidatav2-ck1u.vercel.app/api/scrape';
+// New scraping API endpoint
+const SCRAPER_API = 'https://524axw7qhil15iaiwmoxrfpt5i6jg5p0r6ugjbr0lonedtmt9u-h850428135.scf.usercontent.goog/api/scrape';
 
 // Helper function to format search query
 const formatQuery = (title) => encodeURIComponent(title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim());
@@ -69,7 +69,7 @@ app.get('/api/stream', async (req, res) => {
         return res.status(404).json({ success: false, message: 'No official YouTube stream found.' });
     }
 
-    // --- EXISTING SCRAPER LOGIC ---
+    // --- NEW SCRAPER LOGIC ---
     let targetUrl = '';
     
     // Construct the search URL for the requested server
@@ -85,19 +85,26 @@ app.get('/api/stream', async (req, res) => {
 
     console.log(`[Proxy] Fetching from scraper for: ${targetUrl}`);
 
-    // Call the external scraper API
+    // Call the new external scraper API
     const response = await axios.post(SCRAPER_API, {
       siteUrl: targetUrl
     }, {
       headers: { 'Content-Type': 'application/json' }
     });
 
-    const data = response.data;
+    const json = response.data;
 
-    // Check if the external API returned success and data
-    if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+    // Check if the external API returned valid data
+    if (json && Array.isArray(json.data) && json.data.length > 0) {
+      const rawData = json.data;
+
+      // Filter: Get only Playable Videos (type === 'video')
+      const videos = rawData.filter(item => item.type === 'video');
+
+      console.log(`[Proxy] Scraper returned ${rawData.length} items. Found ${videos.length} videos.`);
+
       // Find the first result that has a videoUrl or embedUrl
-      const match = data.data.find(item => item.videoUrl || item.embedUrl);
+      const match = videos.find(item => item.videoUrl || item.embedUrl);
       
       if (match) {
         console.log(`[Proxy] Found stream: ${match.videoUrl || match.embedUrl}`);
@@ -108,7 +115,7 @@ app.get('/api/stream', async (req, res) => {
       }
     }
     
-    console.log(`[Proxy] No stream found in results.`);
+    console.log(`[Proxy] No video stream found in results.`);
     return res.status(404).json({ success: false, message: 'No stream found in search results' });
 
   } catch (error) {
