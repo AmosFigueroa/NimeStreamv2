@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const ytSearch = require('yt-search');
+const cheerio = require('cheerio');
 
 const app = express();
 const PORT = 5000;
@@ -9,11 +10,99 @@ const PORT = 5000;
 app.use(cors());
 app.use(express.json());
 
-// New scraping API endpoint
+// Fallback Scraper API (for other sites)
 const SCRAPER_API = 'https://524axw7qhil15iaiwmoxrfpt5i6jg5p0r6ugjbr0lonedtmt9u-h850428135.scf.usercontent.goog/api/scrape';
+// Kuramanime Base URL (Can be updated if domain changes)
+const KURAMA_BASE_URL = 'https://kuramanime.tel';
 
 // Helper function to format search query
 const formatQuery = (title) => encodeURIComponent(title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim());
+
+// User-Agent for scraping
+const HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+};
+
+// --- SCRAPING FUNCTIONS ---
+
+/**
+ * Scrapes Kuramanime for a video stream
+ */
+async function scrapeKurama(title, episode) {
+    try {
+        console.log(`[Kurama] Searching for: ${title} Ep ${episode}`);
+        
+        // 1. Search for the anime
+        const searchUrl = `${KURAMA_BASE_URL}/anime?search=${encodeURIComponent(title)}&order_by=latest`;
+        const { data: searchHtml } = await axios.get(searchUrl, { headers: HEADERS });
+        const $ = cheerio.load(searchHtml);
+        
+        // Find the first anime link in the results
+        // Selectors might vary, usually .product__item__text h5 a or similar
+        let animeUrl = $('.product__item__text h5 a').first().attr('href');
+        
+        if (!animeUrl) {
+            console.log('[Kurama] Anime not found in search');
+            return null;
+        }
+
+        console.log(`[Kurama] Found Anime URL: ${animeUrl}`);
+
+        // 2. Construct Episode URL
+        // Typically: https://kuramanime.tel/anime/{slug}/episode/{ep}
+        // animeUrl usually comes as full URL or relative
+        if (!animeUrl.startsWith('http')) {
+            animeUrl = `${KURAMA_BASE_URL}${animeUrl.startsWith('/') ? '' : '/'}${animeUrl}`;
+        }
+        
+        // Remove query params if any
+        animeUrl = animeUrl.split('?')[0];
+        const episodeUrl = `${animeUrl}/episode/${episode}`;
+
+        console.log(`[Kurama] Fetching Episode URL: ${episodeUrl}`);
+
+        // 3. Fetch Episode Page
+        const { data: epHtml } = await axios.get(episodeUrl, { headers: HEADERS });
+        const $ep = cheerio.load(epHtml);
+
+        // 4. Extract Stream Source
+        // Look for common video players (iframe, video tag)
+        let streamUrl = '';
+
+        // Strategy A: Check for <select> options with streams (common in Kurama)
+        // Sometimes stream links are in value of options or encoded strings
+        
+        // Strategy B: Check for Iframe
+        const iframeSrc = $ep('iframe').attr('src');
+        if (iframeSrc) streamUrl = iframeSrc;
+
+        // Strategy C: Check for Video tag
+        if (!streamUrl) {
+             const videoSrc = $ep('video source').attr('src');
+             if (videoSrc) streamUrl = videoSrc;
+        }
+        
+        // Strategy D: Check for specific "data-video" attributes or scripts
+        if (!streamUrl) {
+            // Regex to find generic mp4 or m3u8 in the html
+            const match = epHtml.match(/(https?:\/\/[^"']+\.(?:mp4|m3u8))/);
+            if (match) streamUrl = match[1];
+        }
+
+        if (streamUrl) {
+             console.log(`[Kurama] Found Stream: ${streamUrl}`);
+             return streamUrl;
+        }
+
+        console.log('[Kurama] Stream URL extraction failed');
+        return null;
+
+    } catch (e) {
+        console.error(`[Kurama Error] ${e.message}`);
+        return null;
+    }
+}
+
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -65,7 +154,8 @@ app.get('/api/stream', async (req, res) => {
             'Ani-One Asia',
             'Gundaminfo',
             'Bilibili',
-            'Netflix Indonesia'
+            'Netflix Indonesia',
+            'Wanha Story'
         ];
 
         // Loop through queries until a match is found
@@ -105,6 +195,18 @@ app.get('/api/stream', async (req, res) => {
     }
 
     // --- SCRAPER LOGIC ---
+    
+    // 1. Kuramanime (Internal Scraper)
+    if (server.includes('Kurama')) {
+        const stream = await scrapeKurama(mainTitle, episode);
+        if (stream) {
+            return res.json({ success: true, url: stream });
+        }
+        // If internal scraping fails, fallback to the external proxy below
+        console.log('[Proxy] Falling back to external scraper for Kurama...');
+    }
+
+    // 2. External Scraper Logic (Samehadaku, MovieBox, or Kurama Fallback)
     let targetUrl = '';
     
     // For scraper, we usually use the Romaji/Default title
