@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getAnimeById, getAnimeEpisodes, getStreamUrl } from '../services/animeService';
 import { Anime, Episode, StreamingServer } from '../types';
-import { Loader2, Server, ExternalLink, Play, AlertTriangle, ChevronLeft, Tv, Maximize, Film, Youtube } from 'lucide-react';
+import { Loader2, Server, ExternalLink, Play, AlertTriangle, ChevronLeft, Tv, Maximize, Film, Youtube, Info } from 'lucide-react';
 
 const Watch: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -12,7 +12,7 @@ const Watch: React.FC = () => {
   const [loading, setLoading] = useState(true);
   
   // Player State
-  const [currentServer, setCurrentServer] = useState<StreamingServer>(StreamingServer.TRAILER);
+  const [currentServer, setCurrentServer] = useState<StreamingServer>(StreamingServer.YOUTUBE); // Default to YouTube
   const [selectedEp, setSelectedEp] = useState<number>(1);
   const [streamUrl, setStreamUrl] = useState<string>('');
   const [loadingStream, setLoadingStream] = useState(false);
@@ -67,9 +67,14 @@ const Watch: React.FC = () => {
       setServerMessage('');
 
       try {
-        // Use English title for better search results, fallback to standard title
-        const searchTitle = anime.title_english || anime.title;
-        const result = await getStreamUrl(currentServer, searchTitle, selectedEp);
+        // Pass object with all title variations
+        const titles = {
+            default: anime.title,
+            en: anime.title_english,
+            jp: anime.title_japanese
+        };
+
+        const result = await getStreamUrl(currentServer, titles, selectedEp);
         
         if (result.success && result.url) {
           setStreamUrl(result.url);
@@ -128,20 +133,20 @@ const Watch: React.FC = () => {
                 
                 {/* Loading State */}
                 {loadingStream && (
-                  <div className="absolute inset-0 z-30 bg-slate-900 flex flex-col items-center justify-center text-white">
+                  <div className="absolute inset-0 z-30 bg-slate-900 flex flex-col items-center justify-center text-white text-center p-4">
                     <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                    <p className="animate-pulse text-slate-300">Searching on {currentServer.split(' ')[0]}...</p>
-                    <p className="text-xs text-slate-500 mt-2">
+                    <p className="animate-pulse text-slate-300 font-bold text-lg">Auto-Searching Video...</p>
+                    <p className="text-sm text-slate-500 mt-2 max-w-md">
                         {currentServer === StreamingServer.YOUTUBE 
-                            ? 'Looking for official Muse / Ani-One uploads...' 
-                            : 'This usually takes 2-5 seconds'}
+                            ? `Scanning Muse, Ani-One & Tropics for "${anime.title_english || anime.title} - Episode ${selectedEp}"`
+                            : 'Connecting to scraper server...'}
                     </p>
                   </div>
                 )}
 
                 {/* Video Player */}
                 {!loadingStream && !streamError && streamUrl ? (
-                    <div className="w-full h-full relative">
+                    <div className="w-full h-full relative group">
                         <iframe 
                             src={streamUrl}
                             title="Anime Player"
@@ -149,9 +154,10 @@ const Watch: React.FC = () => {
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                         />
-                         {/* Watermark for YouTube */}
-                         {currentServer === StreamingServer.YOUTUBE && serverMessage && (
-                            <div className="absolute top-4 left-4 bg-red-600/90 text-white text-xs px-2 py-1 rounded backdrop-blur-md shadow-lg pointer-events-none">
+                         {/* Watermark / Source Info */}
+                         {serverMessage && (
+                            <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/80 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 border border-white/10">
+                                <Info className="w-3 h-3 text-primary" />
                                 {serverMessage}
                             </div>
                          )}
@@ -162,23 +168,24 @@ const Watch: React.FC = () => {
                 {!loadingStream && (streamError || (!streamUrl && !loadingStream)) && (
                    <div className="text-center text-slate-400 max-w-lg p-6 flex flex-col items-center z-10">
                         <AlertTriangle className="w-16 h-16 mb-4 text-amber-500 opacity-80" />
-                        <h3 className="text-xl font-bold text-white mb-2">Stream Unavailable</h3>
-                        <p className="mb-6 text-sm">
-                            {streamError || "Could not extract video source."}
+                        <h3 className="text-xl font-bold text-white mb-2">Video Not Found</h3>
+                        <p className="mb-6 text-sm text-slate-400">
+                            {streamError || "Could not find a matching stream automatically."}
                         </p>
                         
                         {currentServer !== StreamingServer.TRAILER && (
                              <div className="flex flex-col gap-3 w-full bg-slate-800/50 p-4 rounded-lg border border-slate-700">
                                 <p className="text-xs text-slate-400">
-                                   Sometimes the automated search fails to find the exact video.
+                                   Try searching manually on the official channel:
                                 </p>
                                 <a 
                                     href={getFallbackUrl()}
                                     target="_blank" 
                                     rel="noreferrer"
-                                    className="bg-primary hover:bg-violet-600 text-white px-6 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 w-full"
+                                    className="bg-primary hover:bg-violet-600 text-white px-6 py-3 rounded-lg font-bold transition-all hover:scale-105 flex items-center justify-center gap-2 w-full shadow-lg shadow-primary/20"
                                 >
-                                    Search on {currentServer === StreamingServer.YOUTUBE ? 'YouTube' : currentServer.split(' ')[0]} Manually <ExternalLink className="w-4 h-4" />
+                                    <Youtube className="w-5 h-5" />
+                                    Search on YouTube Manually <ExternalLink className="w-4 h-4" />
                                 </a>
                              </div>
                         )}
@@ -237,7 +244,7 @@ const Watch: React.FC = () => {
 
                             let label = 'Source';
                             if (isTrailer) label = 'Trailer';
-                            else if (isYouTube) label = 'YouTube';
+                            else if (isYouTube) label = 'YouTube (Auto)';
                             else label = server.split(' ')[0];
                             
                             return (
@@ -257,7 +264,7 @@ const Watch: React.FC = () => {
                         })}
                     </div>
                     <p className="mt-3 text-xs text-slate-500 text-center">
-                        *YouTube Source looks for Muse Indonesia, Ani-One, & Tropics.
+                        *YouTube Source works automatically without backend (Official Channels only).
                     </p>
                 </div>
 
