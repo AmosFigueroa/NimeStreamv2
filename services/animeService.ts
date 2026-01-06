@@ -1,7 +1,8 @@
 import { JikanResponse, Anime, Episode } from '../types';
 
 const BASE_URL = 'https://api.jikan.moe/v4';
-const SCRAPER_API = 'https://apidatav2-ck1u.vercel.app/api/scrape';
+// Use local backend to handle scraping and avoid CORS issues
+const BACKEND_URL = 'http://localhost:5000/api/stream';
 
 // Helper for delay to avoid Jikan rate limiting (3 requests per second)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,57 +46,34 @@ export const getAnimeEpisodes = async (id: number, page = 1): Promise<JikanRespo
 
 export const getStreamUrl = async (server: string, title: string, episode: number): Promise<{ success: boolean; url: string; message?: string }> => {
   try {
-    // 1. Clean and Format Title for Search
-    // Removing special characters usually helps with search accuracy on pirate sites
-    const cleanTitle = title.replace(/[^\w\s]/gi, '').trim(); 
-    const formatQuery = (t: string) => encodeURIComponent(t.toLowerCase());
-    const formattedTitle = formatQuery(cleanTitle);
-    
-    let targetUrl = '';
-    
-    // 2. Construct Search URL based on Server
-    // Note: These URLs are search pages. The scraper API will visit them and look for video players.
-    if (server.includes('Kurama')) {
-       targetUrl = `https://v9.kuramanime.tel/anime?search=${formattedTitle}`;
-    } else if (server.includes('Samehadaku')) {
-       targetUrl = `https://samehadaku.care/?s=${formattedTitle}`;
-    } else if (server.includes('MovieBox')) {
-       targetUrl = `https://moviebox.ph/search?q=${formattedTitle}`;
-    } else {
-       return { success: false, url: '', message: 'Server not supported' };
-    }
-
-    // 3. Call External Scraper API
-    // This API acts as a proxy/scraper that renders the targetURL and extracts video sources.
-    const response = await fetch(SCRAPER_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        siteUrl: targetUrl 
-      }),
+    // Send request to backend proxy
+    const params = new URLSearchParams({
+        server: server,
+        title: title,
+        episode: episode.toString()
     });
 
-    if (!response.ok) throw new Error(`Scraper API Error: ${response.status}`);
+    const response = await fetch(`${BACKEND_URL}?${params.toString()}`);
+
+    if (!response.ok) {
+        // Attempt to read error message
+        try {
+            const err = await response.json();
+            return { success: false, url: '', message: err.message || 'Server error' };
+        } catch {
+            throw new Error(`Backend API Error: ${response.status}`);
+        }
+    }
 
     const hasil = await response.json();
-
-    // 4. Process Results
-    if (hasil.success && Array.isArray(hasil.data) && hasil.data.length > 0) {
-       // Naive logic: Pick the first result that looks like a video or embed
-       // In a real scenario, we might need to filter by Episode Number, but scraping search results is inexact.
-       const match = hasil.data.find((item: any) => item.videoUrl || item.embedUrl);
-       
-       if (match) {
-         return { success: true, url: match.videoUrl || match.embedUrl };
-       }
-    }
-    
-    return { success: false, url: '', message: 'No stream found in search results.' };
+    return hasil;
 
   } catch (error) {
     console.error("Stream fetch error:", error);
-    return { success: false, url: '', message: 'Failed to connect to scraper.' };
+    return { 
+        success: false, 
+        url: '', 
+        message: 'Connection failed. Please ensure the backend server is running on port 5000 (cd backend && npm start).' 
+    };
   }
 };

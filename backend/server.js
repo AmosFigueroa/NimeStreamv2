@@ -8,7 +8,7 @@ const PORT = 5000;
 app.use(cors());
 app.use(express.json());
 
-// The external scraping API endpoint provided
+// The external scraping API endpoint
 const SCRAPER_API = 'https://apidatav2-ck1u.vercel.app/api/scrape';
 
 // Helper function to format search query
@@ -18,10 +18,12 @@ const formatQuery = (title) => encodeURIComponent(title.toLowerCase().replace(/[
  * Endpoint to get stream URL via external proxy
  */
 app.get('/api/stream', async (req, res) => {
-  const { server, title } = req.query;
+  const { server, title, episode } = req.query;
+
+  console.log(`[Stream Request] Server: ${server} | Title: ${title} | Episode: ${episode || 'N/A'}`);
 
   if (!server || !title) {
-    return res.status(400).json({ error: 'Missing server or title' });
+    return res.status(400).json({ success: false, message: 'Missing server or title' });
   }
 
   try {
@@ -35,10 +37,10 @@ app.get('/api/stream', async (req, res) => {
     } else if (server.includes('MovieBox')) {
        targetUrl = `https://moviebox.ph/search?q=${formatQuery(title)}`;
     } else {
-       return res.status(400).json({ error: 'Unsupported server' });
+       return res.status(400).json({ success: false, message: 'Unsupported server type' });
     }
 
-    console.log(`[Proxy] Fetching data for: ${title} from ${targetUrl}`);
+    console.log(`[Proxy] Fetching from scraper for: ${targetUrl}`);
 
     // Call the external scraper API
     const response = await axios.post(SCRAPER_API, {
@@ -55,6 +57,7 @@ app.get('/api/stream', async (req, res) => {
       const match = data.data.find(item => item.videoUrl || item.embedUrl);
       
       if (match) {
+        console.log(`[Proxy] Found stream: ${match.videoUrl || match.embedUrl}`);
         return res.json({ 
             success: true, 
             url: match.videoUrl || match.embedUrl 
@@ -62,12 +65,12 @@ app.get('/api/stream', async (req, res) => {
       }
     }
     
-    // If no video found in the results, return 404
-    return res.status(404).json({ success: false, message: 'No stream found in results' });
+    console.log(`[Proxy] No stream found in results.`);
+    return res.status(404).json({ success: false, message: 'No stream found in search results' });
 
   } catch (error) {
     console.error('[Proxy Error]:', error.message);
-    res.status(500).json({ success: false, error: 'Failed to connect to scraper service' });
+    res.status(500).json({ success: false, message: 'Failed to connect to scraper service' });
   }
 });
 
