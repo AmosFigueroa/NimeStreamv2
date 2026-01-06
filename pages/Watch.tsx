@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getAnimeById, getAnimeEpisodes, getStreamUrl } from '../services/animeService';
 import { Anime, Episode, StreamingServer } from '../types';
-import { Loader2, Server, ExternalLink, Play, AlertTriangle, ChevronLeft, Tv, Maximize, Film } from 'lucide-react';
+import { Loader2, Server, ExternalLink, Play, AlertTriangle, ChevronLeft, Tv, Maximize, Film, Youtube } from 'lucide-react';
 
 const Watch: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +18,7 @@ const Watch: React.FC = () => {
   const [loadingStream, setLoadingStream] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [theaterMode, setTheaterMode] = useState(false);
+  const [serverMessage, setServerMessage] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,12 +57,14 @@ const Watch: React.FC = () => {
       if (currentServer === StreamingServer.TRAILER) {
         setStreamUrl(anime.trailer?.embed_url ? `${anime.trailer.embed_url}?autoplay=1&mute=0` : '');
         setStreamError(anime.trailer?.embed_url ? null : 'No Official Trailer Available');
+        setServerMessage('');
         return;
       }
 
       setLoadingStream(true);
       setStreamError(null);
       setStreamUrl('');
+      setServerMessage('');
 
       try {
         // Use English title for better search results, fallback to standard title
@@ -70,6 +73,7 @@ const Watch: React.FC = () => {
         
         if (result.success && result.url) {
           setStreamUrl(result.url);
+          if (result.message) setServerMessage(result.message);
         } else {
           setStreamError(result.message || 'Stream not found');
         }
@@ -92,6 +96,7 @@ const Watch: React.FC = () => {
 
   const getFallbackUrl = () => {
       const encodedTitle = encodeURIComponent(anime?.title || '');
+      if (currentServer === StreamingServer.YOUTUBE) return `https://www.youtube.com/results?search_query=${encodedTitle}+episode+${selectedEp}+muse+indonesia`;
       if (currentServer.includes('Kurama')) return `https://v9.kuramanime.tel/anime?search=${encodedTitle}`;
       if (currentServer.includes('Samehadaku')) return `https://samehadaku.care/?s=${encodedTitle}`;
       if (currentServer.includes('MovieBox')) return `https://moviebox.ph/search?q=${encodedTitle}`;
@@ -125,20 +130,32 @@ const Watch: React.FC = () => {
                 {loadingStream && (
                   <div className="absolute inset-0 z-30 bg-slate-900 flex flex-col items-center justify-center text-white">
                     <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                    <p className="animate-pulse text-slate-300">Scraping data from {currentServer.split(' ')[0]}...</p>
-                    <p className="text-xs text-slate-500 mt-2">This usually takes 2-5 seconds</p>
+                    <p className="animate-pulse text-slate-300">Searching on {currentServer.split(' ')[0]}...</p>
+                    <p className="text-xs text-slate-500 mt-2">
+                        {currentServer === StreamingServer.YOUTUBE 
+                            ? 'Looking for official Muse / Ani-One uploads...' 
+                            : 'This usually takes 2-5 seconds'}
+                    </p>
                   </div>
                 )}
 
                 {/* Video Player */}
                 {!loadingStream && !streamError && streamUrl ? (
-                    <iframe 
-                        src={streamUrl}
-                        title="Anime Player"
-                        className="w-full h-full border-0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                    />
+                    <div className="w-full h-full relative">
+                        <iframe 
+                            src={streamUrl}
+                            title="Anime Player"
+                            className="w-full h-full border-0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                        />
+                         {/* Watermark for YouTube */}
+                         {currentServer === StreamingServer.YOUTUBE && serverMessage && (
+                            <div className="absolute top-4 left-4 bg-red-600/90 text-white text-xs px-2 py-1 rounded backdrop-blur-md shadow-lg pointer-events-none">
+                                {serverMessage}
+                            </div>
+                         )}
+                    </div>
                 ) : null}
 
                 {/* Error / Fallback */}
@@ -153,7 +170,7 @@ const Watch: React.FC = () => {
                         {currentServer !== StreamingServer.TRAILER && (
                              <div className="flex flex-col gap-3 w-full bg-slate-800/50 p-4 rounded-lg border border-slate-700">
                                 <p className="text-xs text-slate-400">
-                                   Since this is a scraper, sometimes the automated search fails to find the exact video URL on the target site.
+                                   Sometimes the automated search fails to find the exact video.
                                 </p>
                                 <a 
                                     href={getFallbackUrl()}
@@ -161,7 +178,7 @@ const Watch: React.FC = () => {
                                     rel="noreferrer"
                                     className="bg-primary hover:bg-violet-600 text-white px-6 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 w-full"
                                 >
-                                    Open {currentServer.split(' ')[0]} Directly <ExternalLink className="w-4 h-4" />
+                                    Search on {currentServer === StreamingServer.YOUTUBE ? 'YouTube' : currentServer.split(' ')[0]} Manually <ExternalLink className="w-4 h-4" />
                                 </a>
                              </div>
                         )}
@@ -212,6 +229,16 @@ const Watch: React.FC = () => {
                         {Object.values(StreamingServer).map((server) => {
                             const isSelected = currentServer === server;
                             const isTrailer = server === StreamingServer.TRAILER;
+                            const isYouTube = server === StreamingServer.YOUTUBE;
+                            
+                            let Icon = Server;
+                            if (isTrailer) Icon = Film;
+                            if (isYouTube) Icon = Youtube;
+
+                            let label = 'Source';
+                            if (isTrailer) label = 'Trailer';
+                            else if (isYouTube) label = 'YouTube';
+                            else label = server.split(' ')[0];
                             
                             return (
                                 <button
@@ -223,14 +250,14 @@ const Watch: React.FC = () => {
                                         : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800 hover:border-slate-500 hover:text-white'
                                     }`}
                                 >
-                                    {isTrailer ? <Film className="w-5 h-5 mb-1" /> : <Server className="w-5 h-5 mb-1" />}
-                                    <span>{server.includes('Scrape') ? server.split(' ')[0] : 'Trailer'}</span>
+                                    <Icon className={`w-5 h-5 mb-1 ${isYouTube && !isSelected ? 'text-red-500' : ''}`} />
+                                    <span>{label}</span>
                                 </button>
                             );
                         })}
                     </div>
                     <p className="mt-3 text-xs text-slate-500 text-center">
-                        *Sources are scraped from 3rd party sites. Availability may vary.
+                        *YouTube Source looks for Muse Indonesia, Ani-One, & Tropics.
                     </p>
                 </div>
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const ytSearch = require('yt-search');
 
 const app = express();
 const PORT = 5000;
@@ -15,7 +16,7 @@ const SCRAPER_API = 'https://apidatav2-ck1u.vercel.app/api/scrape';
 const formatQuery = (title) => encodeURIComponent(title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim());
 
 /**
- * Endpoint to get stream URL via external proxy
+ * Endpoint to get stream URL via external proxy or YouTube
  */
 app.get('/api/stream', async (req, res) => {
   const { server, title, episode } = req.query;
@@ -27,6 +28,48 @@ app.get('/api/stream', async (req, res) => {
   }
 
   try {
+    // --- YOUTUBE LOGIC ---
+    if (server.includes('YouTube') || server.includes('Muse') || server.includes('AniOne')) {
+        console.log(`[Proxy] Searching YouTube for: ${title} Episode ${episode}`);
+        
+        // Construct a query that targets the specific channels and language
+        // We look for "Sub Indo" or the specific channel names
+        const searchQuery = `${title} Episode ${episode} (Muse Indonesia | Ani-One Indonesia | Tropics Anime Asia) Sub Indo`;
+        
+        const r = await ytSearch(searchQuery);
+        
+        if (r && r.videos.length > 0) {
+            // Filter results to prioritize the official channels
+            const officialChannels = [
+                'Muse Indonesia', 
+                'Ani-One Indonesia', 
+                'Tropics Anime Asia', 
+                'Ani-One Asia',
+                'Gundaminfo',
+                'Bilibili' // Sometimes official legal uploads appear here too
+            ];
+
+            // Try to find a video from an official channel first
+            const bestMatch = r.videos.find(v => 
+                officialChannels.some(channel => v.author.name.includes(channel)) ||
+                v.title.toLowerCase().includes('sub indo')
+            );
+
+            const video = bestMatch || r.videos[0];
+
+            console.log(`[Proxy] YouTube Match: ${video.title} by ${video.author.name}`);
+            
+            return res.json({
+                success: true,
+                url: `https://www.youtube.com/embed/${video.videoId}?autoplay=1`,
+                message: `Found on ${video.author.name}`
+            });
+        }
+        
+        return res.status(404).json({ success: false, message: 'No official YouTube stream found.' });
+    }
+
+    // --- EXISTING SCRAPER LOGIC ---
     let targetUrl = '';
     
     // Construct the search URL for the requested server
@@ -70,7 +113,7 @@ app.get('/api/stream', async (req, res) => {
 
   } catch (error) {
     console.error('[Proxy Error]:', error.message);
-    res.status(500).json({ success: false, message: 'Failed to connect to scraper service' });
+    res.status(500).json({ success: false, message: 'Failed to connect to service' });
   }
 });
 

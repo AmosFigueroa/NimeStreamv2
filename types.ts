@@ -89,6 +89,7 @@ export interface Episode {
 
 export enum StreamingServer {
   TRAILER = 'Official Trailer (Jikan)',
+  YOUTUBE = 'YouTube Official (Muse/AniOne)',
   KURAMA = 'Kuramanime (Scrape)',
   SAMEHADAKU = 'Samehadaku (Scrape)',
   MOVIEBOX = 'MovieBox (Scrape)',
